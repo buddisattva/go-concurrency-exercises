@@ -10,37 +10,30 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
-func producer(stream Stream, tweets *[]*Tweet, ch chan struct{}) {
+type tweetsWithMutex struct {
+	tweets []*Tweet
+	mux    sync.Mutex
+}
+
+func producer(stream Stream, tweetsWithMutex *tweetsWithMutex, ch chan struct{}) {
 	for {
 		select {
 		default:
 			go func() {
-				defer func() {
-					err := recover()
-					if err == nil {
-						return
-					}
-
-					value, ok := err.(error)
-					if !ok {
-						return
-					}
-
-					if value.Error() == "runtime error: index out of range" {
-						return // skip this exception
-					}
-
-					panic(recover()) // problems happened
-				}()
+				defer tweetsWithMutex.mux.Unlock()
+				tweetsWithMutex.mux.Lock()
 
 				tweet, err := stream.Next()
 				if err == ErrEOF {
 					ch <- *new(struct{}) // tell the channel, this loop should be stopped
 				} else {
-					*tweets = append(*tweets, tweet)
+					tweets := tweetsWithMutex.tweets
+					tweets = append(tweets, tweet)
+					tweetsWithMutex.tweets = tweets
 				}
 			}()
 		case <-ch:
@@ -71,15 +64,18 @@ func main() {
 
 	// Producer
 	tweets := new([]*Tweet)
+	tweetsWithMutex := tweetsWithMutex{
+		tweets: *tweets,
+	}
 	chEOF := make(chan struct{})
-	producer(stream, tweets, chEOF)
+	producer(stream, &tweetsWithMutex, chEOF)
 
 	// Consumer
-	ch := make(chan string, len(*tweets))
-	consumer(*tweets, ch)
+	ch := make(chan string, len(tweetsWithMutex.tweets))
+	consumer(tweetsWithMutex.tweets, ch)
 
 	for {
-		if cap(ch) == len(*tweets) {
+		if cap(ch) == len(tweetsWithMutex.tweets) {
 			break
 		}
 		time.Sleep(time.Nanosecond)
