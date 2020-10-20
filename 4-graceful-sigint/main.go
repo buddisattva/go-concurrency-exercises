@@ -13,10 +13,45 @@
 
 package main
 
+import (
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+)
+
 func main() {
 	// Create a process
 	proc := MockProcess{}
 
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT)
+
+	exitChan := make(chan int)
+
 	// Run the process (blocking)
-	proc.Run()
+	go proc.Run()
+
+	go func() {
+		for {
+			s := <-signalChan
+			switch s {
+			// kill -SIGINT XXXX or Ctrl+c
+			case syscall.SIGINT:
+				go proc.Stop()
+
+				for {
+					s := <-signalChan
+					switch s {
+					case syscall.SIGINT:
+						exitChan <- 0
+					}
+				}
+			}
+		}
+	}()
+
+	code := <-exitChan
+	fmt.Println("\nSIGINT is called again, just kill the program... (last resort)")
+	os.Exit(code)
 }
