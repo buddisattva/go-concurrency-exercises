@@ -29,29 +29,29 @@ func main() {
 
 	exitChan := make(chan int)
 
-	// Run the process (blocking)
+	// Run the process (make a new thread to avoid blocking main thread)
 	go proc.Run()
 
 	go func() {
 		for {
-			s := <-signalChan
+			s := <-signalChan // waiting for someone getting into the channel
 			switch s {
 			// kill -SIGINT XXXX or Ctrl+c
 			case syscall.SIGINT:
-				go proc.Stop()
+				go proc.Stop() // make a new thread to avoid blocking main thread
 
 				for {
 					s := <-signalChan
 					switch s {
 					case syscall.SIGINT:
-						exitChan <- 0
+						exitChan <- 0 // bash exit code 0: Success
 					}
 				}
 			}
 		}
 	}()
 
-	code := <-exitChan
+	code := <-exitChan // waiting for someone getting into the channel
 	fmt.Println("\nSIGINT is called again, just kill the program... (last resort)")
 	os.Exit(code)
 }
